@@ -5,7 +5,7 @@ import sys
 
 from openai import APIError, AuthenticationError, OpenAI
 
-# Use a cost-efficient model for short, focused prompts for this exercise.
+# A fast and affordable model good enough for this exercise.
 MODEL = "gpt-6-luna"
 
 
