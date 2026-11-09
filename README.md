@@ -25,14 +25,14 @@ export OPENAI_API_KEY="your-api-key"
 docker compose -f compose.yaml -f compose.cpu.yaml up -d
 ```
 
-
-> Note: The first startup downloads and loads the Guardian model, so `docker compose up` may wait for several minutes. Before starting mitmproxy, Compose waits for Guardian to become healthy and complete one warm-up inference.
+> Note: The first startup downloads and loads the Guardian model, so `docker compose up` may wait for up to 10-15 minutes.
+>
+> Before starting mitmproxy, Compose waits for Guardian to become healthy and complete one warm-up inference.  
 > Optional: to watch its progress in another terminal:
 >
 > ```bash
 > docker compose -f compose.yaml -f compose.cpu.yaml logs -f --tail 30 vllm
 > ```
-
 
 After `docker compose up` finishes successfully and Guardian is ready, send a sample request:
 
@@ -59,7 +59,7 @@ The first three return category-specific block messages. The last is evaluated b
 
 ## Test response blocking
 
-OpenAI should not be asked to generate unsafe content just to test the proxy. This local test mode skips Guardian's prompt check and simulates a harmful response verdict after a normal upstream response. It therefore exercises the real client → NGINX → mitmproxy → OpenAI path and the response-replacement branch.
+There is a test flag to test blocking usafe response from OpenAI. This local test mode skips Guardian's prompt check and simulates a harmful response verdict after a normal upstream response. It therefore exercises the real client → NGINX → mitmproxy → OpenAI path and the response-replacement branch.
 
 ```bash
 export FORCE_RESPONSE_BLOCK_FOR_TEST=true
