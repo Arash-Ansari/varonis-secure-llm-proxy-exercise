@@ -30,12 +30,22 @@ services:
       - SYS_NICE
     security_opt:
       - seccomp=unconfined
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 2h
     ports:
-      # Expose the vLLM API for an initial direct smoke test.
-      - "8000:8000"
+      # Expose the vLLM API only to this host for an initial direct smoke test.
+      - "127.0.0.1:8000:8000"
     volumes:
       # Keep the multi-gigabyte model download in a Docker-managed cache volume.
       - huggingface-cache:/root/.cache/huggingface
+  mitmproxy:
+    depends_on:
+      vllm:
+        condition: service_healthy
 
 volumes:
   huggingface-cache:

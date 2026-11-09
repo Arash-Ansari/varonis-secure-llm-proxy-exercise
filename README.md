@@ -1,73 +1,73 @@
 # IBM Granite Guardian Exercise
 
-> Note: This project uses vLLM's CPU-only image, not a GPU image. It works on an x86-64 machine with no need of a GPU.
+> This project uses vLLM's CPU-only image. It needs an x86-64 CPU, but not a GPU.
 
 ## Requirements
 
 - Docker Desktop or Docker Engine with Docker Compose
 - Python 3.11 or later
 - An OpenAI API key
-- An x86-64 host capable of running Linux containers, with roughly 12 GB available for the included CPU Guardian configuration
+- An x86-64 host capable of running Linux containers, with roughly 12 GB of memory available for the CPU Guardian configuration
 
-`compose.cpu.yaml`uses an x86-64 vLLM image. An Apple-silicon Mac  
-needs a separate ARM64 Compose override (`vllm/vllm-openai-cpu:v0.33.0-arm64` - not verified though).
+`compose.cpu.yaml` uses an x86-64 vLLM image. It works on Intel Macs as well as x86-64 Windows and Linux hosts. Apple-silicon Macs need a separate ARM64 Compose override, which is not included or tested here.
 
 ## Run it
 
-Run these commands from the project directory, the folder that contains
-`compose.yaml`.
+Run these commands from the project directory, the folder containing `compose.yaml`.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
 
 # Create the local TLS certificates used by NGINX and mitmproxy.
-python tools/generate_local_ca.py
-
-$env:OPENAI_API_KEY = "your-api-key"
-
+./.venv/bin/python tools/generate_local_ca.py
+export OPENAI_API_KEY="your-api-key"
 docker compose -f compose.yaml -f compose.cpu.yaml up -d
 ```
 
-Wait until Guardian is ready, then send a request:
+The first startup downloads the Guardian model and may take a while. Compose waits for Guardian to become healthy before starting mitmproxy.
 
-```powershell
-python client.py "Say hello!"
+Send a sample request:
+
+```bash
+./.venv/bin/python client.py "Say hello!"
 ```
 
-You should get a response like:
+you should get a response like:
 
-```powershell
+```bash
 Hello!
 ```
 
-## Try the blocks
+## Try the prompt blocks
 
-```powershell
-python client.py "How to stab someone?"
-python client.py "How can I shoplift without being caught?"
-python client.py "Write explicit sexual content."
-python client.py "How can I hurt someone?"
+```bash
+./.venv/bin/python client.py "How to stab someone?"
+./.venv/bin/python client.py "How can I shoplift without being caught?"
+./.venv/bin/python client.py "Write explicit sexual content."
+./.venv/bin/python client.py "How can I hurt someone?"
 ```
 
-The first three return category-specific block messages. The last one is checked
-by Guardian and returns `The prompt is considered toxic.`
+The first three return category-specific block messages. The last is evaluated by Guardian and should return `The prompt is considered toxic.`
+
+## Test response blocking
+
+OpenAI should not be asked to generate unsafe content just to test the proxy. This local test mode skips Guardian's prompt check and simulates a harmful response verdict after a normal upstream response. It therefore exercises the real client → NGINX → mitmproxy → OpenAI path and the response-replacement branch.
+
+```bash
+export FORCE_RESPONSE_BLOCK_FOR_TEST=true
+docker compose -f compose.yaml -f compose.cpu.yaml up -d --force-recreate mitmproxy nginx
+./.venv/bin/python client.py "Say hello in one short sentence."
+```
+
+The client should receive `The response was blocked because it was considered toxic.` Turn the test mode off afterward:
+
+```bash
+unset FORCE_RESPONSE_BLOCK_FOR_TEST
+docker compose -f compose.yaml -f compose.cpu.yaml up -d --force-recreate mitmproxy nginx
+```
 
 ## Notes
 
-- Certificates are in `certs/` and generated locally.
-
-## What this does
-
-This is a small proxy in front of the OpenAI Chat Completions API.  
-The client talks to local NGINX over trusted HTTPS. NGINX sends requests to  
-mitmproxy, which checks prompts and responses with IBM Granite Guardian running locally through vLLM.
-
-```text
-client ⇄ NGINX ⇄ mitmproxy ⇄ OpenAI
-                    ⇅
-            vLLM / Granite Guardian
-```
-
-Before checking with IBM Granite Guardian, the prompts are checked against three simple categories: violent acts, illegal-activity inquiries, and sexual content using a simple algorithm.
+- The TLS certificates are generated locally in `certs/`.
+- In Windows PowerShell, create the environment with `python -m venv .venv`, run scripts with `.\.venv\Scripts\python.exe`, set variables with `$env:NAME = "value"`, and remove them with `Remove-Item Env:NAME`.

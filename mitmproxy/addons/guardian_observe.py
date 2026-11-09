@@ -17,6 +17,9 @@ from mitmproxy import ctx, http
 GUARDIAN_URL = os.environ["GUARDIAN_URL"]
 GUARDIAN_MODEL = os.environ["GUARDIAN_MODEL"]
 GUARDIAN_TIMEOUT_SECONDS = float(os.environ["GUARDIAN_TIMEOUT_SECONDS"])
+FORCE_RESPONSE_BLOCK_FOR_TEST = (
+    os.environ.get("FORCE_RESPONSE_BLOCK_FOR_TEST", "").lower() == "true"
+)
 
 
 # Simple pattern checks for the required prompt categories.
@@ -222,14 +225,27 @@ def request(flow: http.HTTPFlow) -> None:
         ctx.log.info(f"Prompt blocked: category={category}")
         return
 
-    decision = guardian_decision(prompt)
-    # Do not log prompt contents: prompts can contain sensitive user data.
-    ctx.log.info(
-        "Guardian inspection: "
-        f"decision={decision}, category=none, "
-        f"user_prompt_characters={len(prompt)}"
-    )
-    if decision == "yes":
+    if FORCE_RESPONSE_BLOCK_FOR_TEST:
+        # The local response test simulates Guardian's harmful-response verdict.
+        # Skip prompt inference so its result does not affect that demonstration.
+        decision = "no"
+        ctx.log.warn("Prompt Guardian check skipped for the local response-blocking test.")
+    else:
+        decision = guardian_decision(prompt)
+        # Do not log prompt contents: prompts can contain sensitive user data.
+        ctx.log.info(
+            "Guardian inspection: "
+            f"decision={decision}, category=none, "
+            f"user_prompt_characters={len(prompt)}"
+        )
+    if decision == "unavailable":
+        set_blocked_completion(
+            flow,
+            request_data.get("model"),
+            "The prompt was blocked because the safety service is unavailable.",
+        )
+        ctx.log.warn("Prompt blocked: Guardian safety service is unavailable.")
+    elif decision == "yes":
         set_blocked_completion(
             flow, request_data.get("model"), "The prompt is considered toxic."
         )
@@ -259,13 +275,24 @@ def response(flow: http.HTTPFlow) -> None:
         ctx.log.info("Guardian response observation skipped: no assistant text found.")
         return
 
-    decision = guardian_response_decision(user_prompt, assistant_response)
+    if FORCE_RESPONSE_BLOCK_FOR_TEST:
+        decision = "yes"
+        ctx.log.warn("Response blocking is forced for the local end-to-end test.")
+    else:
+        decision = guardian_response_decision(user_prompt, assistant_response)
     # Do not log response contents: responses can contain sensitive user data.
     ctx.log.info(
         "Guardian response observation: "
         f"decision={decision}, assistant_response_characters={len(assistant_response)}"
     )
-    if decision == "yes":
+    if decision == "unavailable":
+        set_blocked_completion(
+            flow,
+            response_data.get("model", request_data.get("model")),
+            "The response was blocked because the safety service is unavailable.",
+        )
+        ctx.log.warn("Response blocked: Guardian safety service is unavailable.")
+    elif decision == "yes":
         set_blocked_completion(
             flow,
             response_data.get("model", request_data.get("model")),

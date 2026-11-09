@@ -1,2 +1,2 @@
-openai
-cryptography
+openai==3.46.0
+cryptography==50.0.2

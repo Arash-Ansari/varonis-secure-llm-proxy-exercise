@@ -1,4 +1,4 @@
-"""Send one prompt directly to the OpenAI Chat Completions API."""
+"""Send one prompt through the local proxy to OpenAI Chat Completions."""
 import argparse
 import os
 from pathlib import Path
