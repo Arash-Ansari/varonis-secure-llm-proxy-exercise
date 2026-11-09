@@ -33,7 +33,7 @@ Send a sample request:
 ./.venv/bin/python client.py "Say hello!"
 ```
 
-you should get a response like:
+You should get a response like:
 
 ```bash
 Hello!
@@ -70,4 +70,18 @@ docker compose -f compose.yaml -f compose.cpu.yaml up -d --force-recreate mitmpr
 ## Notes
 
 - The TLS certificates are generated locally in `certs/`.
-- In Windows PowerShell, create the environment with `python -m venv .venv`, run scripts with `.\.venv\Scripts\python.exe`, set variables with `$env:NAME = "value"`, and remove them with `Remove-Item Env:NAME`.
+- Streaming Chat Completions requests (`stream: true`) are not supported or tested by this exercise.
+
+## Windows PowerShell
+
+If using powershell on windows, use the following instead.
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe tools\generate_local_ca.py
+$env:OPENAI_API_KEY = "your-api-key"
+docker compose -f compose.yaml -f compose.cpu.yaml up -d
+```
+
+Use `.\.venv\Scripts\python.exe` in place of `./.venv/bin/python` for the remaining commands.
