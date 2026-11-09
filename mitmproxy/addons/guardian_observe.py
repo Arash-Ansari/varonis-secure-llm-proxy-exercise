@@ -166,7 +166,7 @@ def guardian_response_decision(user_text: str, assistant_text: str) -> str:
     return "unavailable"
 
 
-def block_prompt(flow: http.HTTPFlow, model: object, message: str) -> None:
+def set_blocked_completion(flow: http.HTTPFlow, model: object, message: str) -> None:
     """Return a local response shaped like an OpenAI chat completion."""
     response_body = {
         "id": "chatcmpl-blocked",
@@ -214,7 +214,7 @@ def request(flow: http.HTTPFlow) -> None:
             f"category={category}, Guardian skipped, "
             f"user_prompt_characters={len(prompt)}"
         )
-        block_prompt(
+        set_blocked_completion(
             flow,
             request_data.get("model"),
             f"The prompt was blocked because it contained {BLOCK_REASONS[category]}.",
@@ -230,12 +230,14 @@ def request(flow: http.HTTPFlow) -> None:
         f"user_prompt_characters={len(prompt)}"
     )
     if decision == "yes":
-        block_prompt(flow, request_data.get("model"), "The prompt is considered toxic.")
+        set_blocked_completion(
+            flow, request_data.get("model"), "The prompt is considered toxic."
+        )
         ctx.log.info("Prompt blocked: Guardian considered the prompt toxic.")
 
 
 def response(flow: http.HTTPFlow) -> None:
-    """Observe OpenAI assistant responses with Guardian without modifying them."""
+    """Replace OpenAI assistant responses that Guardian marks as harmful."""
     if (
         flow.metadata.get("local_blocked_response")
         or flow.request.method != "POST"
@@ -263,3 +265,10 @@ def response(flow: http.HTTPFlow) -> None:
         "Guardian response observation: "
         f"decision={decision}, assistant_response_characters={len(assistant_response)}"
     )
+    if decision == "yes":
+        set_blocked_completion(
+            flow,
+            response_data.get("model", request_data.get("model")),
+            "The response was blocked because it was considered toxic.",
+        )
+        ctx.log.info("Response blocked: Guardian considered the assistant response toxic.")
