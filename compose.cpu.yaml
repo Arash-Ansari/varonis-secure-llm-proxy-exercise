@@ -1,0 +1,41 @@
+# Optional CPU-only Granite Guardian service.
+# Start it alongside the base project with:
+# docker compose -f compose.yaml -f compose.cpu.yaml up -d
+services:
+  vllm:
+    # Pin the CPU image and x86-64 architecture for reproducible Docker runs on supported hosts.
+    image: vllm/vllm-openai-cpu:v0.33.0-x86_64
+    command:
+      - --model
+      # Use the smaller official 2B Guardian variant to make a CPU-only test more feasible.
+      - ibm-granite/granite-guardian-3.0-2b
+      # Keep the first CPU test small. Model weights and runtime still require substantial RAM.
+      - --max-model-len
+      - "1024"
+      - --dtype
+      - bfloat16
+      # Avoid JIT compilation's large startup-memory peak in constrained CPU environments.
+      - --enforce-eager
+    environment:
+      # Use the standard Hugging Face download path instead of Xet transfers.
+      HF_HUB_DISABLE_XET: "1"
+      # Reserve one logical processor for the vLLM web server itself.
+      VLLM_CPU_NUM_OF_RESERVED_CPU: "1"
+      # One GiB fits alongside the 2B model and is ample for short safety prompts.
+      VLLM_CPU_KVCACHE_SPACE: "1"
+      # Avoid V1 multiprocess shared-memory handoff issues in this CPU-only setup.
+      VLLM_ENABLE_V1_MULTIPROCESSING: "0"
+    shm_size: 4gb
+    cap_add:
+      - SYS_NICE
+    security_opt:
+      - seccomp=unconfined
+    ports:
+      # Expose the vLLM API for an initial direct smoke test.
+      - "8000:8000"
+    volumes:
+      # Keep the multi-gigabyte model download in a Docker-managed cache volume.
+      - huggingface-cache:/root/.cache/huggingface
+
+volumes:
+  huggingface-cache:
