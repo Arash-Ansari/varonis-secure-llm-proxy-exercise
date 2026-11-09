@@ -1,13 +1,13 @@
-"""Observe OpenAI chat prompts with a locally served Granite Guardian model.
+"""Inspect OpenAI chat prompts with a locally served Granite Guardian model.
 
-This first integration step never changes a request or response. It logs only a
-yes/no Guardian decision and the prompt length, then lets mitmproxy continue
-forwarding the request to OpenAI.
+Unsafe prompts receive an OpenAI-compatible local response. Allowed prompts are
+forwarded to OpenAI unchanged.
 """
 
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -31,6 +31,11 @@ SEXUAL_CONTENT_PATTERN = re.compile(
     r"\b(sex|sexual|nude|naked|porn(?:ography)?|explicit sexual)\b",
     re.IGNORECASE,
 )
+BLOCK_REASONS = {
+    "1": "description of violent acts",
+    "2": "inquiries on how to perform an illegal activity",
+    "3": "any sexual content",
+}
 
 
 def build_guardian_prompt(user_text: str) -> str:
@@ -117,8 +122,31 @@ def guardian_decision(user_text: str) -> str:
     return "unavailable"
 
 
+def block_prompt(flow: http.HTTPFlow, model: object, message: str) -> None:
+    """Return a local response shaped like an OpenAI chat completion."""
+    response_body = {
+        "id": "chatcmpl-blocked",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model if isinstance(model, str) else "unknown",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": message},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+    flow.response = http.Response.make(
+        200,
+        json.dumps(response_body).encode("utf-8"),
+        {"Content-Type": "application/json"},
+    )
+
+
 def request(flow: http.HTTPFlow) -> None:
-    """Observe prompt risk for OpenAI Chat Completions without blocking traffic."""
+    """Block unsafe OpenAI Chat Completions requests before they reach OpenAI."""
     if flow.request.method != "POST" or flow.request.path.split("?", 1)[0] != "/v1/chat/completions":
         return
 
@@ -133,11 +161,29 @@ def request(flow: http.HTTPFlow) -> None:
         ctx.log.info("Guardian observation skipped: no user text found.")
         return
 
-    decision = guardian_decision(prompt)
     category = classify_required_category(prompt) or "none"
+    if category != "none":
+        # Do not log prompt contents: prompts can contain sensitive user data.
+        ctx.log.info(
+            "Prompt inspection: "
+            f"category={category}, Guardian skipped, "
+            f"user_prompt_characters={len(prompt)}"
+        )
+        block_prompt(
+            flow,
+            request_data.get("model"),
+            f"The prompt was blocked because it contained {BLOCK_REASONS[category]}.",
+        )
+        ctx.log.info(f"Prompt blocked: category={category}")
+        return
+
+    decision = guardian_decision(prompt)
     # Do not log prompt contents: prompts can contain sensitive user data.
     ctx.log.info(
-        "Guardian observation: "
-        f"decision={decision}, category={category}, "
+        "Guardian inspection: "
+        f"decision={decision}, category=none, "
         f"user_prompt_characters={len(prompt)}"
     )
+    if decision == "yes":
+        block_prompt(flow, request_data.get("model"), "The prompt is considered toxic.")
+        ctx.log.info("Prompt blocked: Guardian considered the prompt toxic.")
