@@ -7,6 +7,7 @@ forwarding the request to OpenAI.
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -16,6 +17,20 @@ from mitmproxy import ctx, http
 GUARDIAN_URL = os.environ["GUARDIAN_URL"]
 GUARDIAN_MODEL = os.environ["GUARDIAN_MODEL"]
 GUARDIAN_TIMEOUT_SECONDS = float(os.environ["GUARDIAN_TIMEOUT_SECONDS"])
+
+
+# Simple pattern checks for the required prompt categories.
+VIOLENT_ACT_PATTERNS = (
+    re.compile(r"\b(stab(?:bed|bing)?|shoot(?:ing|s|\b)|kill(?:ed|ing|s)?|murder(?:ed|ing|s)?|strangl(?:ed|ing)|behead(?:ed|ing)|assault(?:ed|ing)?)\b", re.IGNORECASE),
+)
+ILLEGAL_INQUIRY_PATTERN = re.compile(
+    r"\b(how (?:can|do|to)|ways? to|steps? to|teach me to)\b.*\b(shoplift|steal|break into|forge|counterfeit|bypass a lock)\b",
+    re.IGNORECASE,
+)
+SEXUAL_CONTENT_PATTERN = re.compile(
+    r"\b(sex|sexual|nude|naked|porn(?:ography)?|explicit sexual)\b",
+    re.IGNORECASE,
+)
 
 
 def build_guardian_prompt(user_text: str) -> str:
@@ -56,6 +71,17 @@ def extract_user_prompt(messages: object) -> str:
         for message in messages
         if isinstance(message, dict) and message.get("role") == "user"
     ).strip()
+
+
+def classify_required_category(user_text: str) -> str | None:
+    """Return the first required category number matched by simple patterns."""
+    if any(pattern.search(user_text) for pattern in VIOLENT_ACT_PATTERNS):
+        return "1"
+    if ILLEGAL_INQUIRY_PATTERN.search(user_text):
+        return "2"
+    if SEXUAL_CONTENT_PATTERN.search(user_text):
+        return "3"
+    return None
 
 
 def guardian_decision(user_text: str) -> str:
@@ -108,7 +134,10 @@ def request(flow: http.HTTPFlow) -> None:
         return
 
     decision = guardian_decision(prompt)
+    category = classify_required_category(prompt) or "none"
     # Do not log prompt contents: prompts can contain sensitive user data.
     ctx.log.info(
-        f"Guardian observation: decision={decision}, user_prompt_characters={len(prompt)}"
+        "Guardian observation: "
+        f"decision={decision}, category={category}, "
+        f"user_prompt_characters={len(prompt)}"
     )
