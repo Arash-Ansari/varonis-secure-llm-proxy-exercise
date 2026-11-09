@@ -10,8 +10,22 @@ services:
       - "*=/certs/mitmproxy.pem"
       - --set
       - confdir=/tmp/mitmproxy
+      # Use the configured local certificate instead of looking up OpenAI's certificate.
+      - --set
+      - upstream_cert=false
+      # Wait to connect to OpenAI until the addon has inspected the request.
+      - --set
+      - connection_strategy=lazy
+      - -s
+      - /addons/guardian_observe.py
+    environment:
+      # The optional CPU Compose file adds the vLLM service at this address.
+      GUARDIAN_URL: http://vllm:8000/v1/chat/completions
+      GUARDIAN_MODEL: ibm-granite/granite-guardian-3.0-2b
+      GUARDIAN_TIMEOUT_SECONDS: "120"
     volumes:
       - ./certs:/certs:ro
+      - ./mitmproxy/addons:/addons:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8443), 2).close()"]
       interval: 5s
