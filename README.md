@@ -25,9 +25,16 @@ export OPENAI_API_KEY="your-api-key"
 docker compose -f compose.yaml -f compose.cpu.yaml up -d
 ```
 
-The first startup downloads the Guardian model and may take a while. Compose waits for Guardian to become healthy before starting mitmproxy.
 
-Send a sample request:
+> Note: The first startup downloads and loads the Guardian model, so `docker compose up` may wait for several minutes. Before starting mitmproxy, Compose waits for Guardian to become healthy and complete one warm-up inference.
+> Optional: to watch its progress in another terminal:
+>
+> ```bash
+> docker compose -f compose.yaml -f compose.cpu.yaml logs -f --tail 30 vllm
+> ```
+
+
+After `docker compose up` finishes successfully and Guardian is ready, send a sample request:
 
 ```bash
 ./.venv/bin/python client.py "Say hello!"
@@ -74,7 +81,7 @@ docker compose -f compose.yaml -f compose.cpu.yaml up -d --force-recreate mitmpr
 
 ## Windows PowerShell
 
-If using powershell on windows, use the following instead.
+If using PowerShell on Windows, use the following commands instead.
 
 ```powershell
 py -3 -m venv .venv

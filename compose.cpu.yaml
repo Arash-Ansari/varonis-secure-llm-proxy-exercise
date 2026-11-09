@@ -42,10 +42,24 @@ services:
     volumes:
       # Keep the multi-gigabyte model download in a Docker-managed cache volume.
       - huggingface-cache:/root/.cache/huggingface
-  mitmproxy:
+
+  guardian-warmup:
+    # Reuse the already-pulled mitmproxy image to run one startup inference.
+    image: mitmproxy/mitmproxy:12.3.1
+    command: ["python", "/tools/warmup_guardian.py"]
+    environment:
+      GUARDIAN_URL: http://vllm:8000/v1/chat/completions
+      GUARDIAN_MODEL: ibm-granite/granite-guardian-3.0-2b
+    volumes:
+      - ./tools:/tools:ro
     depends_on:
       vllm:
         condition: service_healthy
+
+  mitmproxy:
+    depends_on:
+      guardian-warmup:
+        condition: service_completed_successfully
 
 volumes:
   huggingface-cache:
