@@ -78,6 +78,16 @@ def extract_user_prompt(messages: object) -> str:
     ).strip()
 
 
+def extract_assistant_response(choices: object) -> str:
+    if not isinstance(choices, list):
+        return ""
+    return "\n".join(
+        message_text(choice.get("message", {}).get("content"))
+        for choice in choices
+        if isinstance(choice, dict) and isinstance(choice.get("message"), dict)
+    ).strip()
+
+
 def classify_required_category(user_text: str) -> str | None:
     """Return the first required category number matched by simple patterns."""
     if any(pattern.search(user_text) for pattern in VIOLENT_ACT_PATTERNS):
@@ -122,6 +132,40 @@ def guardian_decision(user_text: str) -> str:
     return "unavailable"
 
 
+def guardian_response_decision(user_text: str, assistant_text: str) -> str:
+    """Return Guardian's yes/no harm decision for an assistant response."""
+    payload = json.dumps(
+        {
+            "model": GUARDIAN_MODEL,
+            "messages": [
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": assistant_text},
+            ],
+            "temperature": 0,
+            "max_tokens": 3,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        GUARDIAN_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=GUARDIAN_TIMEOUT_SECONDS) as response:
+            result = json.load(response)
+        content = result["choices"][0]["message"]["content"]
+        answer = content.strip().lower().rstrip(".")
+        if answer in {"yes", "no"}:
+            return answer
+        ctx.log.warn("Guardian returned an unexpected response decision format.")
+    except (KeyError, IndexError, TypeError, urllib.error.URLError, TimeoutError) as error:
+        ctx.log.warn(f"Guardian response observation unavailable: {error}")
+
+    return "unavailable"
+
+
 def block_prompt(flow: http.HTTPFlow, model: object, message: str) -> None:
     """Return a local response shaped like an OpenAI chat completion."""
     response_body = {
@@ -143,6 +187,7 @@ def block_prompt(flow: http.HTTPFlow, model: object, message: str) -> None:
         json.dumps(response_body).encode("utf-8"),
         {"Content-Type": "application/json"},
     )
+    flow.metadata["local_blocked_response"] = True
 
 
 def request(flow: http.HTTPFlow) -> None:
@@ -187,3 +232,34 @@ def request(flow: http.HTTPFlow) -> None:
     if decision == "yes":
         block_prompt(flow, request_data.get("model"), "The prompt is considered toxic.")
         ctx.log.info("Prompt blocked: Guardian considered the prompt toxic.")
+
+
+def response(flow: http.HTTPFlow) -> None:
+    """Observe OpenAI assistant responses with Guardian without modifying them."""
+    if (
+        flow.metadata.get("local_blocked_response")
+        or flow.request.method != "POST"
+        or flow.request.path.split("?", 1)[0] != "/v1/chat/completions"
+        or flow.response.status_code != 200
+    ):
+        return
+
+    try:
+        request_data = json.loads(flow.request.get_text(strict=False))
+        response_data = json.loads(flow.response.get_text(strict=False))
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        ctx.log.warn(f"Guardian response observation skipped: invalid JSON ({error}).")
+        return
+
+    user_prompt = extract_user_prompt(request_data.get("messages"))
+    assistant_response = extract_assistant_response(response_data.get("choices"))
+    if not user_prompt or not assistant_response:
+        ctx.log.info("Guardian response observation skipped: no assistant text found.")
+        return
+
+    decision = guardian_response_decision(user_prompt, assistant_response)
+    # Do not log response contents: responses can contain sensitive user data.
+    ctx.log.info(
+        "Guardian response observation: "
+        f"decision={decision}, assistant_response_characters={len(assistant_response)}"
+    )
